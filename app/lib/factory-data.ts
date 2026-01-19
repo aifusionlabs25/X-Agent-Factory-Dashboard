@@ -158,6 +158,20 @@ export interface AgentSummary {
     name: string;
     deployed: boolean;
     created_at: string;
+    deployed_env?: string;
+    deployed_at?: string;
+}
+
+export interface DeploymentRecord {
+    env: string;
+    deployed_at: string;
+    success: boolean;
+    external_ids?: {
+        tavus_replica_id?: string;
+        conversation_url?: string;
+    };
+    manifest_hash?: string;
+    dry_run?: boolean;
 }
 
 export async function getAgents(): Promise<AgentSummary[]> {
@@ -168,18 +182,26 @@ export async function getAgents(): Promise<AgentSummary[]> {
         return index.agents;
     }
 
-    // Fallback: list agents directory and fetch each manifest
+    // Fallback: list agents directory and fetch each manifest + deployment
     const slugs = await fetchDirectory('agents');
     const agents: AgentSummary[] = [];
 
     for (const slug of slugs.slice(0, 20)) { // Limit to 20 to avoid rate limits
         const manifest = await fetchRawJson<AgentManifest>(`agents/${slug}/manifest.json`);
         if (manifest) {
+            // Check for deployment.json (Phase 23)
+            const deployment = await fetchRawJson<DeploymentRecord>(`agents/${slug}/deployment.json`);
+            const isDeployed = (deployment?.success === true) ||
+                manifest.deployed ||
+                !!manifest.tavus_replica_id;
+
             agents.push({
                 slug: manifest.client_slug || slug,
                 name: manifest.client_slug?.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) || slug,
-                deployed: manifest.deployed || !!manifest.tavus_replica_id,
+                deployed: isDeployed,
                 created_at: manifest.generated_at || '',
+                deployed_env: deployment?.env,
+                deployed_at: deployment?.deployed_at,
             });
         }
     }
